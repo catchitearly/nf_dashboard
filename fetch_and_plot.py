@@ -126,7 +126,7 @@ def compute_vwap(df: pd.DataFrame) -> pd.Series:
 
 def difference_series(df_a: pd.DataFrame, df_b: pd.DataFrame, col: str) -> pd.Series:
     """Aligned subtraction: strike[i] - strike[i+1]"""
-    aligned = df_a[col].reindex(df_b[col].index).fillna(method="ffill")
+    aligned = df_a[col].reindex(df_b[col].index).ffill()
     diff = aligned - df_b[col]
     return diff
 
