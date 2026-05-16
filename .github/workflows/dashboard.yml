@@ -1,0 +1,80 @@
+name: Nifty Options Dashboard
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to fetch (today | YYYY-MM-DD | DD-MM-YYYY)"
+        required: false
+        default: "today"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so we can push data cache
+
+      # ── Restore cached data ───────────────────────────────────────────────
+      - name: Restore data cache
+        uses: actions/cache@v4
+        id: data-cache
+        with:
+          path: data/
+          key: nifty-data-${{ github.run_id }}
+          restore-keys: |
+            nifty-data-
+
+      # ── Python setup ───────────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Fetch data & build HTML ────────────────────────────────────────────
+      - name: Fetch options data and generate dashboard
+        env:
+          FYERS_CLIENT_ID:    ${{ secrets.FYERS_CLIENT_ID }}
+          FYERS_ACCESS_TOKEN: ${{ secrets.FYERS_ACCESS_TOKEN }}
+        run: |
+          python fetch_and_plot.py \
+            --date "${{ github.event.inputs.date || 'today' }}" \
+            --output docs/index.html
+
+      # ── Commit data cache to repo (optional persistence) ───────────────────
+      - name: Commit cached data files
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ docs/
+          git diff --cached --quiet || git commit -m "chore: options data & dashboard [${{ github.event.inputs.date || 'today' }}]"
+          git push
+
+      # ── Deploy to GitHub Pages ─────────────────────────────────────────────
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
