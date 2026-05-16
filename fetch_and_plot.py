@@ -483,7 +483,7 @@ def parse_date(raw: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Nifty Options Dashboard")
     parser.add_argument(
-        "--date", default="15-05-2026",
+        "--date", default="today",
         help="Fetch date: 'today' or YYYY-MM-DD or DD-MM-YYYY (default: today)"
     )
     parser.add_argument(
