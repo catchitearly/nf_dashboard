@@ -20,7 +20,7 @@ from fyers_apiv3 import fyersModel
 # ─────────────────────────────────────────────────────────────────────────────
 ATM_STRIKE      = 23700          # ATM strike price
 STRIKE_STEP     = 50             # Nifty strike gap
-EXPIRY_DATE     = "19-05-2026"   # DD-MM-YYYY, e.g., nearest Tuesday expiry
+EXPIRY_DATE     = "26519"        #  nearest Tuesday expiry
 NUM_STRIKES     = 13             # ATM + 12 OTM  (indices 0..12)
 SYMBOL_PREFIX   = "NSE:NIFTY"   # Fyers symbol prefix
 # ─────────────────────────────────────────────────────────────────────────────
@@ -33,9 +33,9 @@ DATA_DIR.mkdir(exist_ok=True)
 
 def make_symbol(strike: int, opt_type: str, expiry: str) -> str:
     """Build Fyers option symbol, e.g. NSE:NIFTY25MAY2450024500CE"""
-    dt = datetime.strptime(expiry, "%d-%m-%Y")
-    exp_str = dt.strftime("%d%b%Y").upper()          # 25MAY2026
-    return f"{SYMBOL_PREFIX}{exp_str}{strike}{opt_type}"
+    dt = expiry
+    #exp_str = dt.strftime("%d%b%Y").upper()          # 25MAY2026
+    return f"{SYMBOL_PREFIX}{dt}{strike}{opt_type}"
 
 
 def get_all_symbols(opt_type: str) -> list[dict]:
