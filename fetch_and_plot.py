@@ -417,19 +417,35 @@ function renderTab(tabId){{
     chartsInit['pe_pv_chart']=true;
   }}
   {chr(10).join(
-      f"  if(tabId==='ce-diff-{i}' && !chartsInit['{p['div_id']}']){{"
-      f"Plotly.newPlot('{p['div_id']}',"
-      f"[{{x:{p['price_x']},y:{p['price_y']},name:{json.dumps(p['label']+' ΔPrice')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.8}},hovertemplate:'<b>{p[\"label\"]} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}},"
-      f"{{x:{p['vwap_x']},y:{p['vwap_y']},name:{json.dumps(p['label']+' ΔVWAP')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.4,dash:'dash'}},hovertemplate:'<b>{p[\"label\"]} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}}],"
-      f"DIFF_LAYOUT,CONFIG);chartsInit['{p['div_id']}']=true;}}"
+      "  if(tabId==='ce-diff-{i}' && !chartsInit['{div}']){{Plotly.newPlot('{div}',{traces},DIFF_LAYOUT,CONFIG);chartsInit['{div}']=true;}}".format(
+          i=i, div=p['div_id'],
+          traces=json.dumps([
+              {"x": json.loads(p['price_x']), "y": json.loads(p['price_y']),
+               "name": p['label']+" ΔPrice", "type": "scatter", "mode": "lines",
+               "line": {"color": p['color'], "width": 1.8},
+               "hovertemplate": f"<b>{p['label']} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>"},
+              {"x": json.loads(p['vwap_x']), "y": json.loads(p['vwap_y']),
+               "name": p['label']+" ΔVWAP", "type": "scatter", "mode": "lines",
+               "line": {"color": p['color'], "width": 1.4, "dash": "dash"},
+               "hovertemplate": f"<b>{p['label']} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>"},
+          ])
+      )
       for i, p in enumerate(ce_pairs)
   )}
   {chr(10).join(
-      f"  if(tabId==='pe-diff-{i}' && !chartsInit['{p['div_id']}']){{"
-      f"Plotly.newPlot('{p['div_id']}',"
-      f"[{{x:{p['price_x']},y:{p['price_y']},name:{json.dumps(p['label']+' ΔPrice')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.8}},hovertemplate:'<b>{p[\"label\"]} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}},"
-      f"{{x:{p['vwap_x']},y:{p['vwap_y']},name:{json.dumps(p['label']+' ΔVWAP')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.4,dash:'dash'}},hovertemplate:'<b>{p[\"label\"]} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}}],"
-      f"DIFF_LAYOUT,CONFIG);chartsInit['{p['div_id']}']=true;}}"
+      "  if(tabId==='pe-diff-{i}' && !chartsInit['{div}']){{Plotly.newPlot('{div}',{traces},DIFF_LAYOUT,CONFIG);chartsInit['{div}']=true;}}".format(
+          i=i, div=p['div_id'],
+          traces=json.dumps([
+              {"x": json.loads(p['price_x']), "y": json.loads(p['price_y']),
+               "name": p['label']+" ΔPrice", "type": "scatter", "mode": "lines",
+               "line": {"color": p['color'], "width": 1.8},
+               "hovertemplate": f"<b>{p['label']} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>"},
+              {"x": json.loads(p['vwap_x']), "y": json.loads(p['vwap_y']),
+               "name": p['label']+" ΔVWAP", "type": "scatter", "mode": "lines",
+               "line": {"color": p['color'], "width": 1.4, "dash": "dash"},
+               "hovertemplate": f"<b>{p['label']} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>"},
+          ])
+      )
       for i, p in enumerate(pe_pairs)
   )}
 }}
