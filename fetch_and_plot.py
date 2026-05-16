@@ -146,94 +146,102 @@ def vals_to_js(series: pd.Series) -> str:
 
 
 def generate_dashboard(
-    ce_data: list[dict],   # [{"strike":…, "df":…, "vwap":…}, …]
+    ce_data: list[dict],
     pe_data: list[dict],
     fetch_date: str,
     output_path: str = "docs/index.html",
 ):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    strikes = [d["strike"] for d in ce_data]
+    # ── Per-pair data builder ────────────────────────────────────────────────
+    def build_pairs(data_list, opt_type, colors):
+        pairs = []
+        for i in range(len(data_list) - 1):
+            a = data_list[i]
+            b = data_list[i + 1]
+            diff_p = a["df"]["close"].reindex(b["df"]["close"].index).ffill() - b["df"]["close"]
+            diff_v = a["vwap"].reindex(b["vwap"].index).ffill() - b["vwap"]
+            pairs.append({
+                "label":   f"{opt_type} {a['strike']}–{b['strike']}",
+                "div_id":  f"{opt_type.lower()}_diff_{i}",
+                "price_x": ts_to_js(diff_p),
+                "price_y": vals_to_js(diff_p),
+                "vwap_x":  ts_to_js(diff_v),
+                "vwap_y":  vals_to_js(diff_v),
+                "color":   colors[i % len(colors)],
+            })
+        return pairs
 
-    # ── Build JS traces ──────────────────────────────────────────────────────
-    def price_vwap_traces(data_list, opt_type, color_price, color_vwap):
-        traces = []
+    # ── Price+VWAP overlay traces (all strikes on one chart) ─────────────────
+    def pv_traces_js(data_list, opt_type, price_clr, vwap_clr):
+        items = []
         for item in data_list:
             df   = item["df"]
             vwap = item["vwap"]
             s    = item["strike"]
             label = f"{opt_type} {s}"
-            traces.append({
-                "x":    ts_to_js(df),
-                "y":    vals_to_js(df["close"]),
-                "name": f"{label} Price",
-                "line": {"color": color_price, "width": 1.2},
-                "hovertemplate": f"<b>{label} Price</b><br>%{{x}}<br>₹%{{y:.2f}}<extra></extra>",
-            })
-            traces.append({
-                "x":    ts_to_js(vwap),
-                "y":    vals_to_js(vwap),
-                "name": f"{label} VWAP",
-                "line": {"color": color_vwap, "width": 1.5, "dash": "dot"},
-                "hovertemplate": f"<b>{label} VWAP</b><br>%{{x}}<br>₹%{{y:.2f}}<extra></extra>",
-            })
-        return traces
+            items.append(
+                f"{{x:{ts_to_js(df)},y:{vals_to_js(df['close'])},"
+                f"name:{json.dumps(label+' Price')},type:'scatter',mode:'lines',"
+                f"line:{{color:{json.dumps(price_clr)},width:1.2}},"
+                f"hovertemplate:{json.dumps('<b>'+label+' Price</b><br>%{x}<br>₹%{y:.2f}<extra></extra>')}}}"
+            )
+            items.append(
+                f"{{x:{ts_to_js(vwap)},y:{vals_to_js(vwap)},"
+                f"name:{json.dumps(label+' VWAP')},type:'scatter',mode:'lines',"
+                f"line:{{color:{json.dumps(vwap_clr)},width:1.5,dash:'dot'}},"
+                f"hovertemplate:{json.dumps('<b>'+label+' VWAP</b><br>%{x}<br>₹%{y:.2f}<extra></extra>')}}}"
+            )
+        return "[" + ",\n".join(items) + "]"
 
-    def diff_traces(data_list, opt_type, colors):
-        traces = []
-        for i in range(len(data_list) - 1):
-            a = data_list[i]
-            b = data_list[i + 1]
-            diff_p = difference_series(a["df"], b["df"], "close")
-            diff_v = a["vwap"].reindex(b["vwap"].index).ffill() - b["vwap"]
-            label = f"{opt_type} {a['strike']}–{b['strike']}"
-            color = colors[i % len(colors)]
-            traces.append({
-                "x":    ts_to_js(diff_p),
-                "y":    vals_to_js(diff_p),
-                "name": f"{label} ΔPrice",
-                "line": {"color": color, "width": 1.5},
-                "hovertemplate": f"<b>{label} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>",
-            })
-            traces.append({
-                "x":    ts_to_js(diff_v),
-                "y":    vals_to_js(diff_v),
-                "name": f"{label} ΔVWAP",
-                "line": {"color": color, "width": 1.2, "dash": "dash"},
-                "hovertemplate": f"<b>{label} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>",
-            })
-        return traces
-
-    CE_PRICE_CLR  = "#00d9ff"
-    CE_VWAP_CLR   = "#0077ff"
-    PE_PRICE_CLR  = "#ff6b6b"
-    PE_VWAP_CLR   = "#cc0000"
-    DIFF_PALETTE  = [
+    DIFF_PALETTE = [
         "#f9ca24","#6ab04c","#e056fd","#badc58","#eb4d4b",
         "#22a6b3","#f0932b","#be2edd","#4834d4","#30336b","#686de0","#95afc0",
     ]
 
-    ce_pv_traces   = price_vwap_traces(ce_data, "CE", CE_PRICE_CLR, CE_VWAP_CLR)
-    pe_pv_traces   = price_vwap_traces(pe_data, "PE", PE_PRICE_CLR, PE_VWAP_CLR)
-    ce_diff_traces = diff_traces(ce_data, "CE", DIFF_PALETTE)
-    pe_diff_traces = diff_traces(pe_data, "PE", DIFF_PALETTE)
+    ce_pairs = build_pairs(ce_data, "CE", DIFF_PALETTE)
+    pe_pairs = build_pairs(pe_data, "PE", DIFF_PALETTE)
 
-    def traces_js(tlist):
-        items = []
-        for t in tlist:
-            line = t.get("line", {})
-            line_str = json.dumps(line)
-            items.append(
-                f"{{"
-                f"x:{t['x']},y:{t['y']},"
-                f"name:{json.dumps(t['name'])},"
-                f"type:'scatter',mode:'lines',"
-                f"line:{line_str},"
-                f"hovertemplate:{json.dumps(t['hovertemplate'])},"
-                f"visible:true"
-                f"}}"
+    ce_pv_js = pv_traces_js(ce_data, "CE", "#00d9ff", "#0077ff")
+    pe_pv_js = pv_traces_js(pe_data, "PE", "#ff6b6b", "#cc0000")
+
+    # ── HTML for diff chart cards ─────────────────────────────────────────────
+    def diff_cards_html(pairs, badge_cls):
+        cards = []
+        for p in pairs:
+            cards.append(f"""
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">{p['label']} &nbsp;·&nbsp; ΔPrice &amp; ΔVWAP</span>
+          <span class="badge {badge_cls}">{badge_cls.upper()}</span>
+          <span class="badge diff">Δ DIFF</span>
+          <button class="legend-toggle" onclick="toggleLegend('{p['div_id']}')">Legend</button>
+        </div>
+        <div id="{p['div_id']}" class="plotly-chart"></div>
+      </div>""")
+        return "\n".join(cards)
+
+    # ── JS: init calls for diff charts ────────────────────────────────────────
+    def diff_init_js(pairs):
+        lines = []
+        for p in pairs:
+            traces = (
+                f"[{{x:{p['price_x']},y:{p['price_y']},"
+                f"name:{json.dumps(p['label']+' ΔPrice')},type:'scatter',mode:'lines',"
+                f"line:{{color:{json.dumps(p['color'])},width:1.8}},"
+                f"hovertemplate:'<b>{p[\"label\"]} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}},"
+                f"{{x:{p['vwap_x']},y:{p['vwap_y']},"
+                f"name:{json.dumps(p['label']+' ΔVWAP')},type:'scatter',mode:'lines',"
+                f"line:{{color:{json.dumps(p['color'])},width:1.4,dash:'dash'}},"
+                f"hovertemplate:'<b>{p[\"label\"]} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}}]"
             )
-        return "[" + ",\n".join(items) + "]"
+            lines.append(
+                f"  if(tabId==='{p['div_id'].split('_diff_')[0].replace('ce','ce-diff').replace('pe','pe-diff')}'"
+                f" && !chartsInit['{p['div_id']}']){{"
+                f"Plotly.newPlot('{p['div_id']}',{traces},DIFF_LAYOUT,CONFIG);"
+                f"chartsInit['{p['div_id']}']=true;}}"
+            )
+        return "\n".join(lines)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -241,77 +249,58 @@ def generate_dashboard(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nifty Options Chain — {fetch_date}</title>
-<script src="{PLOTLY_CDN}"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
   :root{{
     --bg:#0a0c10;--panel:#111521;--border:#1e2535;
     --text:#e2e8f0;--muted:#64748b;--accent:#00d9ff;
     --ce:#00d9ff;--pe:#ff6b6b;
-    --font:'JetBrains Mono',monospace;
   }}
   *{{margin:0;padding:0;box-sizing:border-box}}
-  body{{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;min-height:100vh}}
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+  body{{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh}}
 
   header{{
-    padding:18px 28px;border-bottom:1px solid var(--border);
-    display:flex;align-items:center;gap:20px;
-    background:linear-gradient(90deg,#0a0c10 0%,#111521 100%);
+    padding:16px 24px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:16px;
+    background:linear-gradient(90deg,#0a0c10,#111521);
   }}
-  header h1{{font-size:17px;font-weight:700;letter-spacing:0.04em;color:var(--accent)}}
-  header .meta{{color:var(--muted);font-size:11px}}
-  header .pill{{
-    padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
-    background:#1e2535;border:1px solid var(--border);color:var(--accent);
-  }}
+  header h1{{font-size:16px;font-weight:700;letter-spacing:0.05em;color:var(--accent)}}
+  header .meta{{color:var(--muted);font-size:11px;margin-top:2px}}
+  .pill{{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+    background:#1e2535;border:1px solid var(--border);color:var(--accent);margin-left:auto}}
 
-  .tab-bar{{
-    display:flex;gap:0;border-bottom:1px solid var(--border);
-    padding:0 16px;background:var(--panel);overflow-x:auto;
-  }}
-  .tab{{
-    padding:11px 18px;cursor:pointer;font-size:12px;font-weight:600;
+  /* ── Tabs ── */
+  .tab-bar{{display:flex;border-bottom:1px solid var(--border);
+    padding:0 16px;background:var(--panel);overflow-x:auto;gap:0}}
+  .tab{{padding:11px 16px;cursor:pointer;font-size:11px;font-weight:700;
     color:var(--muted);border-bottom:2px solid transparent;
-    white-space:nowrap;transition:color .15s,border-color .15s;
-    letter-spacing:0.03em;
-  }}
+    white-space:nowrap;transition:color .15s,border-color .15s;letter-spacing:0.04em}}
   .tab:hover{{color:var(--text)}}
-  .tab.active{{color:var(--accent);border-bottom-color:var(--accent)}}
-  .tab.ce{{color:var(--muted)}} .tab.ce.active{{color:var(--ce);border-bottom-color:var(--ce)}}
-  .tab.pe{{color:var(--muted)}} .tab.pe.active{{color:var(--pe);border-bottom-color:var(--pe)}}
+  .tab.active.ce-tab{{color:var(--ce);border-bottom-color:var(--ce)}}
+  .tab.active.pe-tab{{color:var(--pe);border-bottom-color:var(--pe)}}
 
-  .section{{display:none;padding:16px}}
+  /* ── Sections ── */
+  .section{{display:none;padding:16px 20px}}
   .section.active{{display:block}}
 
-  .chart-card{{
-    background:var(--panel);border:1px solid var(--border);border-radius:8px;
-    margin-bottom:16px;overflow:hidden;
-  }}
-  .chart-header{{
-    padding:10px 16px;border-bottom:1px solid var(--border);
-    display:flex;align-items:center;gap:10px;
-  }}
-  .chart-title{{font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase}}
-  .badge{{
-    padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;
-    letter-spacing:0.06em;
-  }}
+  /* ── Cards ── */
+  .chart-card{{background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;margin-bottom:20px;overflow:hidden}}
+  .chart-header{{padding:9px 14px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
+  .chart-title{{font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase}}
+  .badge{{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.05em}}
   .badge.ce{{background:rgba(0,217,255,.12);color:var(--ce)}}
   .badge.pe{{background:rgba(255,107,107,.12);color:var(--pe)}}
   .badge.diff{{background:rgba(249,202,36,.1);color:#f9ca24}}
-
-  .plotly-chart{{width:100%;min-height:340px}}
-
-  footer{{
-    padding:14px 28px;border-top:1px solid var(--border);
-    color:var(--muted);font-size:10px;text-align:center;
-    background:var(--panel);
-  }}
-
-  /* toggle legend */
   .legend-toggle{{margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer;
     background:var(--bg);border:1px solid var(--border);padding:3px 8px;border-radius:4px}}
   .legend-toggle:hover{{color:var(--text)}}
+  .plotly-chart{{width:100%;min-height:300px}}
+
+  footer{{padding:12px 24px;border-top:1px solid var(--border);
+    color:var(--muted);font-size:10px;text-align:center;background:var(--panel)}}
 </style>
 </head>
 <body>
@@ -319,17 +308,16 @@ def generate_dashboard(
 <header>
   <div>
     <h1>⚡ NIFTY OPTIONS CHAIN</h1>
-    <div class="meta">ATM {ATM_STRIKE} · Step {STRIKE_STEP} · Expiry {EXPIRY_DATE} · 5-min candles</div>
+    <div class="meta">ATM {ATM_STRIKE} · Step {STRIKE_STEP} · Expiry {EXPIRY_DATE} · 5-min</div>
   </div>
   <div class="pill">📅 {fetch_date}</div>
-  <div class="pill">ATM+12 OTM</div>
 </header>
 
 <div class="tab-bar">
-  <div class="tab ce active" data-tab="ce-pv">CE Price & VWAP</div>
-  <div class="tab pe"        data-tab="pe-pv">PE Price & VWAP</div>
-  <div class="tab ce"        data-tab="ce-diff">CE Differences</div>
-  <div class="tab pe"        data-tab="pe-diff">PE Differences</div>
+  <div class="tab ce-tab active" data-tab="ce-pv">CE · Price &amp; VWAP</div>
+  <div class="tab pe-tab"        data-tab="pe-pv">PE · Price &amp; VWAP</div>
+  {''.join(f'<div class="tab ce-tab" data-tab="ce-diff-{i}">{p["label"].replace("CE ","CE ")} Δ</div>' for i, p in enumerate(ce_pairs))}
+  {''.join(f'<div class="tab pe-tab" data-tab="pe-diff-{i}">{p["label"].replace("PE ","PE ")} Δ</div>' for i, p in enumerate(pe_pairs))}
 </div>
 
 <!-- CE Price & VWAP -->
@@ -338,7 +326,7 @@ def generate_dashboard(
     <div class="chart-header">
       <span class="chart-title">CE — All Strikes · Price &amp; VWAP</span>
       <span class="badge ce">CALL</span>
-      <button class="legend-toggle" onclick="toggleLegend('ce_pv_chart')">Toggle Legend</button>
+      <button class="legend-toggle" onclick="toggleLegend('ce_pv_chart')">Legend</button>
     </div>
     <div id="ce_pv_chart" class="plotly-chart"></div>
   </div>
@@ -350,113 +338,104 @@ def generate_dashboard(
     <div class="chart-header">
       <span class="chart-title">PE — All Strikes · Price &amp; VWAP</span>
       <span class="badge pe">PUT</span>
-      <button class="legend-toggle" onclick="toggleLegend('pe_pv_chart')">Toggle Legend</button>
+      <button class="legend-toggle" onclick="toggleLegend('pe_pv_chart')">Legend</button>
     </div>
     <div id="pe_pv_chart" class="plotly-chart"></div>
   </div>
 </div>
 
-<!-- CE Differences -->
-<div id="ce-diff" class="section">
+<!-- CE diff tabs — one section per pair -->
+{''.join(f"""
+<div id="ce-diff-{i}" class="section">
   <div class="chart-card">
     <div class="chart-header">
-      <span class="chart-title">CE — Strike-to-Strike Price &amp; VWAP Difference</span>
-      <span class="badge ce">CALL</span>
-      <span class="badge diff">Δ DIFF</span>
-      <button class="legend-toggle" onclick="toggleLegend('ce_diff_chart')">Toggle Legend</button>
+      <span class="chart-title">{p['label']} &nbsp;·&nbsp; ΔPrice &amp; ΔVWAP</span>
+      <span class="badge ce">CALL</span><span class="badge diff">Δ DIFF</span>
+      <button class="legend-toggle" onclick="toggleLegend('{p['div_id']}')">Legend</button>
     </div>
-    <div id="ce_diff_chart" class="plotly-chart"></div>
+    <div id="{p['div_id']}" class="plotly-chart"></div>
   </div>
-</div>
+</div>""" for i, p in enumerate(ce_pairs))}
 
-<!-- PE Differences -->
-<div id="pe-diff" class="section">
+<!-- PE diff tabs — one section per pair -->
+{''.join(f"""
+<div id="pe-diff-{i}" class="section">
   <div class="chart-card">
     <div class="chart-header">
-      <span class="chart-title">PE — Strike-to-Strike Price &amp; VWAP Difference</span>
-      <span class="badge pe">PUT</span>
-      <span class="badge diff">Δ DIFF</span>
-      <button class="legend-toggle" onclick="toggleLegend('pe_diff_chart')">Toggle Legend</button>
+      <span class="chart-title">{p['label']} &nbsp;·&nbsp; ΔPrice &amp; ΔVWAP</span>
+      <span class="badge pe">PUT</span><span class="badge diff">Δ DIFF</span>
+      <button class="legend-toggle" onclick="toggleLegend('{p['div_id']}')">Legend</button>
     </div>
-    <div id="pe_diff_chart" class="plotly-chart"></div>
+    <div id="{p['div_id']}" class="plotly-chart"></div>
   </div>
-</div>
+</div>""" for i, p in enumerate(pe_pairs))}
 
-<footer>Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')} · Data: Fyers API · Cache: data/</footer>
+<footer>Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')} · Fyers API · cache: data/</footer>
 
 <script>
-const LAYOUT_BASE = {{
-  paper_bgcolor:'#111521',
-  plot_bgcolor:'#0a0c10',
-  font:{{family:"'JetBrains Mono', monospace",color:'#e2e8f0',size:11}},
-  xaxis:{{
-    gridcolor:'#1e2535',showgrid:true,zeroline:false,
-    tickformat:'%H:%M',tickfont:{{size:10}},
-  }},
-  yaxis:{{
-    gridcolor:'#1e2535',showgrid:true,zeroline:false,
-    tickfont:{{size:10}},tickprefix:'₹',
-  }},
-  legend:{{
-    bgcolor:'rgba(17,21,33,0.85)',bordercolor:'#1e2535',borderwidth:1,
-    font:{{size:10}},orientation:'v',x:1.01,y:1,
-  }},
+const LAYOUT = {{
+  paper_bgcolor:'#111521',plot_bgcolor:'#0a0c10',
+  font:{{family:"'JetBrains Mono',monospace",color:'#e2e8f0',size:11}},
+  xaxis:{{gridcolor:'#1e2535',showgrid:true,zeroline:false,tickformat:'%H:%M',tickfont:{{size:10}}}},
+  yaxis:{{gridcolor:'#1e2535',showgrid:true,zeroline:false,tickfont:{{size:10}},tickprefix:'₹'}},
+  legend:{{bgcolor:'rgba(17,21,33,.85)',bordercolor:'#1e2535',borderwidth:1,font:{{size:10}}}},
   hovermode:'x unified',
-  hoverlabel:{{bgcolor:'#1e2535',bordercolor:'#2d3748',font:{{family:"'JetBrains Mono', monospace",size:11}}}},
-  margin:{{l:55,r:10,t:15,b:45}},
-  dragmode:'zoom',
+  hoverlabel:{{bgcolor:'#1e2535',bordercolor:'#2d3748',font:{{family:"'JetBrains Mono',monospace",size:11}}}},
+  margin:{{l:55,r:10,t:12,b:45}},dragmode:'zoom',
 }};
-
-const DIFF_LAYOUT = JSON.parse(JSON.stringify(LAYOUT_BASE));
-DIFF_LAYOUT.yaxis.tickprefix = '';
-
-const CONFIG = {{
-  responsive:true,
-  displayModeBar:true,
-  modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d'],
-  displaylogo:false,
-  scrollZoom:true,
-}};
-
-const cePvTraces   = {traces_js(ce_pv_traces)};
-const pePvTraces   = {traces_js(pe_pv_traces)};
-const ceDiffTraces = {traces_js(ce_diff_traces)};
-const peDiffTraces = {traces_js(pe_diff_traces)};
+const DIFF_LAYOUT = {{...LAYOUT,yaxis:{{...LAYOUT.yaxis,tickprefix:''}}}};
+const CONFIG = {{responsive:true,displayModeBar:true,
+  modeBarButtonsToRemove:['select2d','lasso2d'],displaylogo:false,scrollZoom:true}};
 
 let chartsInit = {{}};
 
-function initChart(divId, traces, layout) {{
-  Plotly.newPlot(divId, traces, layout, CONFIG);
-  chartsInit[divId] = true;
-}}
-
-function renderVisible(tabId) {{
-  if (tabId === 'ce-pv'   && !chartsInit['ce_pv_chart'])   initChart('ce_pv_chart',   cePvTraces,   LAYOUT_BASE);
-  if (tabId === 'pe-pv'   && !chartsInit['pe_pv_chart'])   initChart('pe_pv_chart',   pePvTraces,   LAYOUT_BASE);
-  if (tabId === 'ce-diff' && !chartsInit['ce_diff_chart']) initChart('ce_diff_chart', ceDiffTraces, DIFF_LAYOUT);
-  if (tabId === 'pe-diff' && !chartsInit['pe_diff_chart']) initChart('pe_diff_chart', peDiffTraces, DIFF_LAYOUT);
+function toggleLegend(id){{
+  const gd=document.getElementById(id);
+  const cur=gd.layout?.showlegend;
+  Plotly.relayout(id,{{showlegend:cur===false?true:false}});
 }}
 
 // Tab switching
-document.querySelectorAll('.tab').forEach(tab => {{
-  tab.addEventListener('click', () => {{
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+document.querySelectorAll('.tab').forEach(tab=>{{
+  tab.addEventListener('click',()=>{{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
     tab.classList.add('active');
-    const id = tab.dataset.tab;
+    const id=tab.dataset.tab;
     document.getElementById(id).classList.add('active');
-    renderVisible(id);
+    renderTab(id);
   }});
 }});
 
-function toggleLegend(divId) {{
-  const gd = document.getElementById(divId);
-  const curr = gd.layout?.showlegend;
-  Plotly.relayout(divId, {{showlegend: curr === false ? true : false}});
+function renderTab(tabId){{
+  if(tabId==='ce-pv' && !chartsInit['ce_pv_chart']){{
+    Plotly.newPlot('ce_pv_chart',{ce_pv_js},LAYOUT,CONFIG);
+    chartsInit['ce_pv_chart']=true;
+  }}
+  if(tabId==='pe-pv' && !chartsInit['pe_pv_chart']){{
+    Plotly.newPlot('pe_pv_chart',{pe_pv_js},LAYOUT,CONFIG);
+    chartsInit['pe_pv_chart']=true;
+  }}
+  {chr(10).join(
+      f"  if(tabId==='ce-diff-{i}' && !chartsInit['{p['div_id']}']){{"
+      f"Plotly.newPlot('{p['div_id']}',"
+      f"[{{x:{p['price_x']},y:{p['price_y']},name:{json.dumps(p['label']+' ΔPrice')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.8}},hovertemplate:'<b>{p[\"label\"]} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}},"
+      f"{{x:{p['vwap_x']},y:{p['vwap_y']},name:{json.dumps(p['label']+' ΔVWAP')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.4,dash:'dash'}},hovertemplate:'<b>{p[\"label\"]} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}}],"
+      f"DIFF_LAYOUT,CONFIG);chartsInit['{p['div_id']}']=true;}}"
+      for i, p in enumerate(ce_pairs)
+  )}
+  {chr(10).join(
+      f"  if(tabId==='pe-diff-{i}' && !chartsInit['{p['div_id']}']){{"
+      f"Plotly.newPlot('{p['div_id']}',"
+      f"[{{x:{p['price_x']},y:{p['price_y']},name:{json.dumps(p['label']+' ΔPrice')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.8}},hovertemplate:'<b>{p[\"label\"]} ΔPrice</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}},"
+      f"{{x:{p['vwap_x']},y:{p['vwap_y']},name:{json.dumps(p['label']+' ΔVWAP')},type:'scatter',mode:'lines',line:{{color:{json.dumps(p['color'])},width:1.4,dash:'dash'}},hovertemplate:'<b>{p[\"label\"]} ΔVWAP</b><br>%{{x}}<br>%{{y:.2f}}<extra></extra>'}}],"
+      f"DIFF_LAYOUT,CONFIG);chartsInit['{p['div_id']}']=true;}}"
+      for i, p in enumerate(pe_pairs)
+  )}
 }}
 
 // Init first tab
-renderVisible('ce-pv');
+renderTab('ce-pv');
 </script>
 </body>
 </html>"""
@@ -464,7 +443,6 @@ renderVisible('ce-pv');
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"\n✅ Dashboard written → {output_path}")
-
 
 # ── Main orchestration ────────────────────────────────────────────────────────
 
