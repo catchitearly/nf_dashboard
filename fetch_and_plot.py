@@ -185,7 +185,7 @@ def generate_dashboard(
             a = data_list[i]
             b = data_list[i + 1]
             diff_p = difference_series(a["df"], b["df"], "close")
-            diff_v = difference_series(a["vwap"].to_frame(), b["vwap"].to_frame(), "vwap")["vwap"]
+            diff_v = a["vwap"].reindex(b["vwap"].index).ffill() - b["vwap"]
             label = f"{opt_type} {a['strike']}–{b['strike']}"
             color = colors[i % len(colors)]
             traces.append({
