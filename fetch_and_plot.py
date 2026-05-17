@@ -18,10 +18,10 @@ from fyers_apiv3 import fyersModel
 # ─────────────────────────────────────────────────────────────────────────────
 # HARDCODED CONFIG — edit these before each expiry
 # ─────────────────────────────────────────────────────────────────────────────
-ATM_STRIKE      = 23700          # ATM strike price
+ATM_STRIKE      = 23500          # ATM strike price
 STRIKE_STEP     = 50             # Nifty strike gap
 EXPIRY_DATE     = "26519"        # nearest Tuesday expiry
-NUM_STRIKES     = 13             # ATM + 12 OTM  (indices 0..12)
+NUM_STRIKES     = 10             # ATM + 12 OTM  (indices 0..12)
 SYMBOL_PREFIX   = "NSE:NIFTY"   # Fyers symbol prefix
 # ─────────────────────────────────────────────────────────────────────────────
 
