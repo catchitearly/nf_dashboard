@@ -29,8 +29,9 @@ EXPIRY_DATETIME = datetime(2026, 5, 19, 15, 30)  # actual expiry datetime (IST) 
 NUM_STRIKES     = 9                 # ATM + 12 OTM  (indices 0..12)
 SYMBOL_PREFIX   = "NSE:NIFTY"       # Fyers symbol prefix
 SPOT_SYMBOL     = "NSE:NIFTY50-INDEX"
-RISK_FREE_RATE  = 0.0525              # RBI repo rate ~6.5%
+RISK_FREE_RATE  = 0.065              # RBI repo rate ~6.5%
 DIVIDEND_YIELD  = 0.0                # assume 0 for intraday
+IV_SKEW_ALERT   = 1.0               # % threshold — Telegram alert when |PE_IV - CE_IV| > this
 
 # NSE market hours (IST)
 MARKET_OPEN     = dtime(9, 15)
