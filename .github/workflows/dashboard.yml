@@ -1,6 +1,8 @@
 name: Nifty Options Dashboard
 
 on:
+  repository_dispatch:
+    types: [trigger-dashboard]
   workflow_dispatch:
     inputs:
       date:
