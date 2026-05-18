@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 # HARDCODED CONFIG — edit these before each expiry
 # ─────────────────────────────────────────────────────────────────────────────
-ATM_STRIKE      = 23700              # ATM strike price
+ATM_STRIKE      = 23500              # ATM strike price
 STRIKE_STEP     = 50                 # Nifty strike gap
 EXPIRY_DATE     = "26519"            # Fyers expiry string (nearest Tuesday)
 EXPIRY_DATETIME = datetime(2026, 5, 19, 15, 30)  # actual expiry datetime (IST) — update per expiry
