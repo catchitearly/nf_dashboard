@@ -26,10 +26,10 @@ ATM_STRIKE      = 23700              # ATM strike price
 STRIKE_STEP     = 50                 # Nifty strike gap
 EXPIRY_DATE     = "26519"            # Fyers expiry string (nearest Tuesday)
 EXPIRY_DATETIME = datetime(2025, 1, 9, 15, 30)  # actual expiry datetime (IST) — update per expiry
-NUM_STRIKES     = 13                 # ATM + 12 OTM  (indices 0..12)
+NUM_STRIKES     = 9                 # ATM + 12 OTM  (indices 0..12)
 SYMBOL_PREFIX   = "NSE:NIFTY"       # Fyers symbol prefix
 SPOT_SYMBOL     = "NSE:NIFTY50-INDEX"
-RISK_FREE_RATE  = 0.065              # RBI repo rate ~6.5%
+RISK_FREE_RATE  = 0.0525              # RBI repo rate ~6.5%
 DIVIDEND_YIELD  = 0.0                # assume 0 for intraday
 
 # NSE market hours (IST)
