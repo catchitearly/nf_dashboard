@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 # HARDCODED CONFIG — edit these before each expiry
 # ─────────────────────────────────────────────────────────────────────────────
-ATM_STRIKE      = 23500              # ATM strike price
+ATM_STRIKE      = 23700              # ATM strike price
 STRIKE_STEP     = 50                 # Nifty strike gap
 EXPIRY_DATE     = "26519"            # Fyers expiry string (nearest Tuesday)
 EXPIRY_DATETIME = datetime(2026, 5, 19, 15, 30)  # actual expiry datetime (IST) — update per expiry
@@ -866,6 +866,72 @@ def send_telegram(html_path: str, fetch_date: str, run_time: str):
         print(f"  [telegram] ❌ failed: {e}")
 
 
+# ── Telegram skew alert ──────────────────────────────────────────────────────
+
+def send_telegram_message(text: str):
+    """Send a plain text message to the configured Telegram chat."""
+    import urllib.request
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id   = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not bot_token or not chat_id:
+        return
+    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            if result.get("ok"):
+                print(f"  [telegram alert] ✅ skew alert sent")
+            else:
+                print(f"  [telegram alert] ⚠️  {result}")
+    except Exception as e:
+        print(f"  [telegram alert] ❌ {e}")
+
+
+def check_and_alert_skew(ce_data: list, pe_data: list, fetch_date: str, run_time: str):
+    """
+    Check the latest bar's ATM IV skew (PE_IV - CE_IV).
+    If |diff| > IV_SKEW_ALERT threshold, send a Telegram message.
+    """
+    ce_iv = ce_data[0]["iv"].dropna()
+    pe_iv = pe_data[0]["iv"].dropna()
+    if ce_iv.empty or pe_iv.empty:
+        return
+
+    # align and get last common bar
+    common_idx = ce_iv.index.intersection(pe_iv.index)
+    if common_idx.empty:
+        return
+
+    last_ts   = common_idx[-1]
+    ce_last   = ce_iv.loc[last_ts]
+    pe_last   = pe_iv.loc[last_ts]
+    diff      = pe_last - ce_last
+    bar_time  = last_ts.strftime("%H:%M")
+
+    if abs(diff) <= IV_SKEW_ALERT:
+        print(f"  [skew check] {bar_time}  PE−CE = {diff:+.2f}%  (within threshold, no alert)")
+        return
+
+    direction = "PUT SKEW 🔴" if diff > 0 else "CALL SKEW 🔵"
+    lines = [
+        f"\u26a0\ufe0f *IV Skew Alert* \u2014 {fetch_date} {bar_time} IST",
+        f"*{direction}*",
+        f"PE IV  : `{pe_last:.2f}%`",
+        f"CE IV  : `{ce_last:.2f}%`",
+        f"PE \u2212 CE: `{diff:+.2f}%`  (threshold \xb1{IV_SKEW_ALERT}%)",
+        f"ATM    : `{ce_data[0]['strike']}`",
+    ]
+    msg = "\n".join(lines)
+    print(f"  [skew check] {bar_time}  PE−CE = {diff:+.2f}%  → ALERT SENT")
+    send_telegram_message(msg)
+
+
 # ── Main orchestration ────────────────────────────────────────────────────────
 
 def parse_date(raw: str) -> str:
@@ -881,29 +947,34 @@ def parse_date(raw: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Nifty Options Dashboard")
-    parser.add_argument("--date",      default="today",           help="Fetch date: today | YYYY-MM-DD | DD-MM-YYYY")
-    parser.add_argument("--output",    default="docs/index.html", help="Output HTML path")
-    parser.add_argument("--no-telegram", action="store_true",     help="Skip Telegram send")
+    parser.add_argument("--date",        default="today",           help="Fetch date: today | YYYY-MM-DD | DD-MM-YYYY")
+    parser.add_argument("--output",      default="docs/index.html", help="Output HTML path")
+    parser.add_argument("--no-telegram", action="store_true",       help="Skip all Telegram sends")
     args = parser.parse_args()
 
     fetch_date = parse_date(args.date)
+    is_today   = (fetch_date == date.today().strftime("%Y-%m-%d"))
     run_time   = datetime.now().strftime("%H:%M:%S")
 
-    print(f"\n📅 Fetch date  : {fetch_date}  |  run: {run_time}")
-    print(f"🎯 ATM strike  : {ATM_STRIKE}  |  Step: {STRIKE_STEP}  |  Expiry: {EXPIRY_DATE}")
-    print(f"📊 CE strikes  : {ATM_STRIKE} → {ATM_STRIKE + (NUM_STRIKES-1)*STRIKE_STEP}  (OTM calls)")
-    print(f"📊 PE strikes  : {ATM_STRIKE} → {ATM_STRIKE - (NUM_STRIKES-1)*STRIKE_STEP}  (OTM puts)")
+    print(f"\n📅 Fetch date  : {fetch_date}  |  run: {run_time}  |  live={is_today}")
     print(f"⏱  T method    : Trading minutes only  (252d × {MINUTES_PER_DAY}min/d)")
     print(f"💹 Risk-free r : {RISK_FREE_RATE*100:.1f}%")
+    print(f"🔔 Skew alert  : ±{IV_SKEW_ALERT}%")
 
     fyers = get_fyers_client()
 
-    # ── Spot ──────────────────────────────────────────────────────────────────
+    # ── Spot (fetch first — needed for ATM resolution) ────────────────────────
     print(f"\n── Fetching Spot ───────────────────────────────────────────────")
     spot_df = fetch_and_append(fyers, SPOT_SYMBOL, fetch_date)
 
+    # ── Resolve ATM dynamically ───────────────────────────────────────────────
+    print(f"\n── Resolving ATM ───────────────────────────────────────────────")
+    atm = resolve_atm(spot_df, is_today)
+    print(f"📊 CE strikes  : {atm} → {atm + (NUM_STRIKES-1)*STRIKE_STEP}  (OTM calls)")
+    print(f"📊 PE strikes  : {atm} → {atm - (NUM_STRIKES-1)*STRIKE_STEP}  (OTM puts)")
+
     # ── CE ────────────────────────────────────────────────────────────────────
-    ce_syms = get_all_symbols("CE")
+    ce_syms = get_all_symbols("CE", atm)
     print(f"\n── Fetching CE + computing IV ──────────────────────────────────")
     ce_data = []
     for item in ce_syms:
@@ -913,11 +984,11 @@ def main():
         iv_clean = iv.dropna()
         if len(iv_clean):
             print(f"    IV [{item['strike']} CE]: {iv_clean.min():.1f}% – {iv_clean.max():.1f}%  "
-                  f"(last bar: {iv_clean.iloc[-1]:.1f}%)")
+                  f"(last: {iv_clean.iloc[-1]:.1f}%)")
         ce_data.append({"strike": item["strike"], "symbol": item["symbol"], "df": df, "vwap": vwap, "iv": iv})
 
     # ── PE ────────────────────────────────────────────────────────────────────
-    pe_syms = get_all_symbols("PE")
+    pe_syms = get_all_symbols("PE", atm)
     print(f"\n── Fetching PE + computing IV ──────────────────────────────────")
     pe_data = []
     for item in pe_syms:
@@ -927,16 +998,23 @@ def main():
         iv_clean = iv.dropna()
         if len(iv_clean):
             print(f"    IV [{item['strike']} PE]: {iv_clean.min():.1f}% – {iv_clean.max():.1f}%  "
-                  f"(last bar: {iv_clean.iloc[-1]:.1f}%)")
+                  f"(last: {iv_clean.iloc[-1]:.1f}%)")
         pe_data.append({"strike": item["strike"], "symbol": item["symbol"], "df": df, "vwap": vwap, "iv": iv})
 
     # ── Dashboard ─────────────────────────────────────────────────────────────
     print(f"\n── Generating Dashboard ────────────────────────────────────────")
     generate_dashboard(ce_data, pe_data, spot_df, fetch_date, args.output)
 
-    # ── Telegram ──────────────────────────────────────────────────────────────
+    # ── Telegram skew alert (every run) ───────────────────────────────────────
+    print(f"\n── Checking IV Skew ────────────────────────────────────────────")
     if not args.no_telegram:
-        print(f"\n── Sending via Telegram ────────────────────────────────────────")
+        check_and_alert_skew(ce_data, pe_data, fetch_date, run_time)
+    else:
+        print("  [skew check] skipped via --no-telegram")
+
+    # ── Telegram dashboard file (every run) ───────────────────────────────────
+    print(f"\n── Sending Dashboard via Telegram ──────────────────────────────")
+    if not args.no_telegram:
         send_telegram(args.output, fetch_date, run_time)
     else:
         print("  [telegram] skipped via --no-telegram flag")
