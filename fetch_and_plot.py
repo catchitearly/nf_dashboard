@@ -29,7 +29,7 @@ EXPIRY_DATETIME = datetime(2026, 5, 19, 15, 30)  # actual expiry datetime (IST) 
 NUM_STRIKES     = 9                 # ATM + 12 OTM  (indices 0..12)
 SYMBOL_PREFIX   = "NSE:NIFTY"       # Fyers symbol prefix
 SPOT_SYMBOL     = "NSE:NIFTY50-INDEX"
-RISK_FREE_RATE  = 0.065              # RBI repo rate ~6.5%
+RISK_FREE_RATE  = 0.052              # RBI repo rate ~6.5%
 DIVIDEND_YIELD  = 0.0                # assume 0 for intraday
 IV_SKEW_ALERT   = 1.0               # % threshold — Telegram alert when |PE_IV - CE_IV| > this
 
@@ -49,14 +49,43 @@ def make_symbol(strike: int, opt_type: str, expiry: str) -> str:
     return f"{SYMBOL_PREFIX}{expiry}{strike}{opt_type}"
 
 
-def get_all_symbols(opt_type: str) -> list[dict]:
+def get_all_symbols(opt_type: str, atm: int) -> list[dict]:
     if opt_type == "CE":
         # CE OTM: ATM, ATM+1, ATM+2, ... (ascending — higher strikes are OTM for calls)
-        strikes = [ATM_STRIKE + i * STRIKE_STEP for i in range(NUM_STRIKES)]
+        strikes = [atm + i * STRIKE_STEP for i in range(NUM_STRIKES)]
     else:
         # PE OTM: ATM, ATM-1, ATM-2, ... (descending — lower strikes are OTM for puts)
-        strikes = [ATM_STRIKE - i * STRIKE_STEP for i in range(NUM_STRIKES)]
+        strikes = [atm - i * STRIKE_STEP for i in range(NUM_STRIKES)]
     return [{"strike": s, "symbol": make_symbol(s, opt_type, EXPIRY_DATE)} for s in strikes]
+
+
+# ── ATM strike resolver ──────────────────────────────────────────────────────
+
+def resolve_atm(spot_df: pd.DataFrame, is_today: bool) -> int:
+    """
+    Determine the ATM strike dynamically from spot data.
+    - Live / today  : use the LATEST available close (updates every 5-min run)
+    - Historical    : use the 9:15 candle close (first candle of the day)
+    Rounds to nearest STRIKE_STEP.
+    """
+    if spot_df.empty:
+        raise ValueError("Spot data is empty — cannot resolve ATM")
+
+    if is_today:
+        spot_price = spot_df["close"].iloc[-1]
+        source     = f"latest bar ({spot_df.index[-1].strftime('%H:%M')})"
+    else:
+        market_open_ts = spot_df.index[spot_df.index.time >= MARKET_OPEN]
+        if market_open_ts.empty:
+            spot_price = spot_df["close"].iloc[0]
+            source     = "first available bar (9:15 not found)"
+        else:
+            spot_price = spot_df.loc[market_open_ts[0], "close"]
+            source     = f"9:15 bar ({market_open_ts[0].strftime('%H:%M')})"
+
+    atm = int(round(spot_price / STRIKE_STEP) * STRIKE_STEP)
+    print(f"  [ATM] spot={spot_price:.1f}  source={source}  → ATM={atm}")
+    return atm
 
 
 # ── CSV cache helpers ─────────────────────────────────────────────────────────
