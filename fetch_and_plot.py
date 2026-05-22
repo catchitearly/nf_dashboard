@@ -968,73 +968,94 @@ VWAP_PROXIMITY = 0.5   # points — alert when |close - vwap| <= this
 
 def check_vwap_proximity(ce_data: list, pe_data: list, fetch_date: str, run_time: str):
     """
-    For every CE and PE strike check if the LATEST bar's close price
-    is within VWAP_PROXIMITY points of its VWAP.
-    Sends a single Telegram message listing all qualifying pairs.
+    For every strike, combine CE+PE into a straddle and check if the LATEST
+    bar's straddle price (CE close + PE close) is within VWAP_PROXIMITY points
+    of the straddle VWAP (CE VWAP + PE VWAP).
+    Sends a single Telegram message listing all qualifying straddles.
     """
+    # Build lookup dicts keyed by strike for fast pairing
+    ce_map = {item["strike"]: item for item in ce_data}
+    pe_map = {item["strike"]: item for item in pe_data}
+
+    common_strikes = set(ce_map.keys()) & set(pe_map.keys())
+    if not common_strikes:
+        print("  [vwap prox] no matching CE/PE strikes found")
+        return
+
     hits = []
+    for strike in sorted(common_strikes):
+        ce_item = ce_map[strike]
+        pe_item = pe_map[strike]
 
-    for opt_type, data_list in [("CE", ce_data), ("PE", pe_data)]:
-        for item in data_list:
-            df   = item["df"]
-            vwap = item["vwap"]
+        ce_df   = ce_item["df"]
+        pe_df   = pe_item["df"]
+        ce_vwap = ce_item["vwap"]
+        pe_vwap = pe_item["vwap"]
 
-            if df.empty or vwap.empty:
-                continue
+        if ce_df.empty or pe_df.empty or ce_vwap.empty or pe_vwap.empty:
+            continue
 
-            # align vwap to df index (vwap is a Series with same index)
-            common = df.index.intersection(vwap.index)
-            if common.empty:
-                continue
+        # Find the latest timestamp common to all four series
+        common_idx = (
+            ce_df.index
+            .intersection(pe_df.index)
+            .intersection(ce_vwap.index)
+            .intersection(pe_vwap.index)
+        )
+        if common_idx.empty:
+            continue
 
-            last_ts    = common[-1]
-            last_close = df.loc[last_ts, "close"]
-            last_vwap  = vwap.loc[last_ts]
-            diff       = last_close - last_vwap
-            bar_time   = last_ts.strftime("%H:%M")
+        last_ts = common_idx[-1]
 
-            print(f"  [vwap prox] {item['strike']} {opt_type}  "
-                  f"close={last_close:.1f}  vwap={last_vwap:.1f}  diff={diff:+.2f}")
+        # Straddle price and straddle VWAP at last bar
+        straddle_price = ce_df.loc[last_ts, "close"] + pe_df.loc[last_ts, "close"]
+        straddle_vwap  = ce_vwap.loc[last_ts]        + pe_vwap.loc[last_ts]
+        diff           = straddle_price - straddle_vwap
+        bar_time       = last_ts.strftime("%H:%M")
 
-            if abs(diff) <= VWAP_PROXIMITY:
-                hits.append({
-                    "strike":    item["strike"],
-                    "opt_type":  opt_type,
-                    "close":     last_close,
-                    "vwap":      last_vwap,
-                    "diff":      diff,
-                    "bar_time":  bar_time,
-                })
+        print(
+            f"  [vwap prox] {strike} straddle  "
+            f"price={straddle_price:.1f}  vwap={straddle_vwap:.1f}  diff={diff:+.2f}"
+        )
+
+        if abs(diff) <= VWAP_PROXIMITY:
+            hits.append({
+                "strike":         strike,
+                "straddle_price": straddle_price,
+                "straddle_vwap":  straddle_vwap,
+                "ce_close":       ce_df.loc[last_ts, "close"],
+                "pe_close":       pe_df.loc[last_ts, "close"],
+                "diff":           diff,
+                "bar_time":       bar_time,
+            })
 
     if not hits:
-        print(f"  [vwap prox] no pairs within {VWAP_PROXIMITY} pts of VWAP")
+        print(f"  [vwap prox] no straddles within {VWAP_PROXIMITY} pts of VWAP")
         return
 
     # ── Format Telegram message ───────────────────────────────────────────────
     header = [
-        f"\U0001f4cd *VWAP Proximity Alert* \u2014 {fetch_date} {hits[0]['bar_time']} IST",
-        f"Pairs within *\xb1{VWAP_PROXIMITY} pts* of VWAP:",
+        f"\U0001f4cd *Straddle VWAP Proximity Alert* \u2014 {fetch_date} {hits[0]['bar_time']} IST",
+        f"Straddles within *\xb1{VWAP_PROXIMITY} pts* of Straddle VWAP:",
         "",
     ]
-
     rows = []
     for h in hits:
         arrow = "\u2191" if h["diff"] >= 0 else "\u2193"   # ↑ above vwap  ↓ below vwap
         rows.append(
-            f"`{h['strike']} {h['opt_type']}`  "
-            f"close=`{h['close']:.1f}`  vwap=`{h['vwap']:.1f}`  "
+            f"`{h['strike']} straddle`  "
+            f"price=`{h['straddle_price']:.1f}`  "
+            f"(CE=`{h['ce_close']:.1f}` + PE=`{h['pe_close']:.1f}`)  "
+            f"vwap=`{h['straddle_vwap']:.1f}`  "
             f"diff=`{h['diff']:+.2f}` {arrow}"
         )
-
     footer = [
         "",
-        f"_{len(hits)} pair(s) found_",
+        f"_{len(hits)} straddle(s) found_",
     ]
-
     msg = "\n".join(header + rows + footer)
     print(f"  [vwap prox] {len(hits)} hit(s) — alert sent")
     send_telegram_message(msg)
-
 
 # ── Main orchestration ────────────────────────────────────────────────────────
 
